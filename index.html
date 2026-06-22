@@ -295,14 +295,63 @@
   .editor .ed-seg.act-suggest{ background: rgba(255,255,85,0.08); outline: 1px solid rgba(255,255,85,0.22); padding: 1px 2px; }
   .editor .ed-seg.act-url    { background: rgba(85,255,255,0.08); outline: 1px solid rgba(85,255,255,0.22); padding: 1px 2px; }
   .editor .ed-seg.act-hover  { background: rgba(170,90,255,0.08); outline: 1px solid rgba(170,90,255,0.22); padding: 1px 2px; }
-  .editor .ed-seg[data-badge]::after {
-    content: attr(data-badge); display: inline-block; vertical-align: middle; margin-left: 6px;
+  /* edit-in-place action chip (clickable; opens the action popover) */
+  .editor .ed-seg .act-chip {
+    display: inline-flex; align-items: center; vertical-align: middle; margin-left: 6px;
+    max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: 'Outfit', sans-serif; font-size: 10px; font-weight: 600; color: #fff;
-    background: var(--green-2); border-radius: 3px; padding: 1px 7px; line-height: 1.5; user-select: none;
+    background: var(--green-2); border: 1px solid transparent; border-radius: 3px;
+    padding: 1px 7px; line-height: 1.5; cursor: pointer; user-select: none;
   }
-  .editor .ed-seg.act-suggest[data-badge]::after { background: rgba(170,130,40,0.95); }
-  .editor .ed-seg.act-url[data-badge]::after     { background: rgba(45,120,140,0.95); }
-  .editor .ed-seg.act-hover[data-badge]::after   { background: rgba(120,55,165,0.95); }
+  .editor .ed-seg .act-chip:hover { filter: brightness(1.12); border-color: rgba(255,255,255,0.4); }
+  .editor .ed-seg.act-suggest .act-chip { background: rgba(170,130,40,0.95); }
+  .editor .ed-seg.act-url     .act-chip { background: rgba(45,120,140,0.95); }
+  .editor .ed-seg.act-hover   .act-chip { background: rgba(120,55,165,0.95); }
+
+  /* action edit popover (floating card; opened by clicking a chip) */
+  .act-popover {
+    position: fixed; z-index: 120; width: 270px; padding: 10px;
+    background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px;
+    box-shadow: 0 12px 34px rgba(0,0,0,0.6);
+  }
+  .act-popover.open { display: flex; flex-direction: column; gap: 8px; }   /* overrides .menu.open */
+  .act-pop-head { display: flex; align-items: baseline; gap: 8px; padding: 2px 2px 0; }
+  .act-pop-head > span:first-child { font-size: 12px; font-weight: 700; color: var(--t-1); }
+  .act-pop-sub {
+    flex: 1; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--t-4);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .act-pop-card {
+    background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 6px;
+    padding: 9px 10px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .act-pop-card.empty { opacity: 0.9; }
+  .act-pop-card-h { display: flex; align-items: center; gap: 7px; }
+  .act-pop-ic { font-size: 13px; }
+  .act-pop-name { font-size: 10px; font-weight: 700; color: var(--t-1); text-transform: uppercase; letter-spacing: 0.05em; }
+  .act-pop-state { margin-left: auto; font-size: 10px; color: var(--t-3); }
+  .act-pop-card:not(.empty) .act-pop-state { color: var(--green); }
+  .act-pop-val {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--t-bright);
+    background: var(--output-bg); border: 1px solid var(--line); border-radius: 4px;
+    padding: 5px 8px; word-break: break-all; max-height: 56px; overflow: auto;
+  }
+  .act-pop-seg { display: flex; gap: 4px; }
+  .act-seg-btn {
+    flex: 1; height: 26px; padding: 0 4px; background: var(--btn); border: 1px solid var(--line-2);
+    border-radius: 4px; color: var(--t-2); font-family: inherit; font-size: 10px; font-weight: 600;
+    cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .act-seg-btn:hover { background: var(--btn-hover); color: var(--t-1); }
+  .act-seg-btn.on { background: var(--green-2); border-color: var(--green); color: #fff; }
+  .act-pop-btns { display: flex; gap: 6px; }
+  .act-pop-btn {
+    flex: 1; height: 28px; background: var(--btn); border: 1px solid var(--line-2);
+    border-radius: 4px; color: var(--t-1); font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+  }
+  .act-pop-btn:hover { background: var(--btn-hover); }
+  .act-pop-btn.danger { color: #FF8585; }
+  .act-pop-btn.danger:hover { background: rgba(255,107,107,0.14); border-color: rgba(255,107,107,0.4); }
 
   /* modal */
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 150; }
@@ -573,6 +622,6 @@
 <div class="mc-tooltip" id="mc-tooltip"></div>
 <div class="toast" id="toast"></div>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

@@ -442,18 +442,28 @@ function redo() {
 }
 
 /* ---- render doc → editor DOM, building the caret index ---- */
-function makeEditorSpan(run, txt) {
+function makeEditorSpan(run, txt, segStart) {
   const span = document.createElement('span');
   span.className = 'ed-seg';
   styleSpan(span, run, true);   // editor always shows true colours
-  span.appendChild(document.createTextNode(txt));
+  span.appendChild(document.createTextNode(txt));   // seg.node is this text node (span.firstChild)
   const kind = run.click ? run.click.kind : (run.hover ? 'hover' : null);
   if (kind) {
     span.classList.add('act-' + kind);
+    // A real, non-editable chip the user can click to edit/remove the action(s) on this run.
+    // Appended AFTER the text node so `span.firstChild` stays the text node the caret index
+    // maps to, and never registered as a seg so offset mapping ignores it entirely.
+    const chip = document.createElement('span');
+    chip.className = 'act-chip';
+    chip.contentEditable = 'false';
+    chip.setAttribute('draggable', 'false');
+    chip.dataset.off = String(segStart);   // a character offset inside this action run
+    chip.title = 'Click to edit this action';
     const parts = [];
     if (run.click) parts.push(ACTION_ICON[run.click.kind] + ' ' + run.click.value);
     if (run.hover) parts.push('💬');
-    span.dataset.badge = parts.join('  ');
+    chip.textContent = parts.join('  ') + ' ▾';
+    span.appendChild(chip);
   }
   return span;
 }
@@ -483,7 +493,7 @@ function renderEditor() {
       }
       const txt = parts[p];
       if (txt.length === 0) continue;
-      const span = makeEditorSpan(run, txt);
+      const span = makeEditorSpan(run, txt, off);
       cur.div.appendChild(span);
       cur.segs.push({ start: off, end: off + txt.length, node: span.firstChild });
       cur.len += txt.length;
@@ -745,6 +755,25 @@ function applyColorCmd(color) {
   applyAttrRange(s, e, r => { r.color = color ? Object.assign({}, color) : null; });
   finalize(s, e);
 }
+/* Click-action prompt config (shared by the toolbar Actions and the edit-in-place widget). */
+const CLICK_CFG = {
+  run:     { title: 'Run command', label: 'Command to run when clicked', def: '/', ph: '/spawn', hint: 'RUN_COMMAND — executed as the player.' },
+  suggest: { title: 'Suggest command', label: 'Command to pre-fill in chat', def: '/', ph: '/help', hint: 'SUGGEST_COMMAND — placed in the chat box, not run.' },
+  url:     { title: 'Open URL', label: 'URL to open', def: 'https://', ph: 'https://example.com', hint: 'OPEN_URL — only http/https links open in the vanilla client.' },
+};
+function promptClick(kind, prefill) {
+  const cfg = CLICK_CFG[kind];
+  return askInput({
+    title: cfg.title, label: cfg.label, value: prefill != null && prefill !== '' ? prefill : cfg.def,
+    placeholder: cfg.ph, hint: cfg.hint,
+    validate: v => {
+      if (v.includes(']')) return 'Value cannot contain "]"';
+      if (kind === 'url' && !/^https?:\/\//i.test(v)) return 'URL must start with http:// or https://';
+      return null;
+    },
+  });
+}
+
 async function applyActionCmd(kind) {
   if (rawMode) return;                  // click/hover actions are unavailable while editing raw markup
   const main = E;                       // actions always target the main editor
@@ -767,27 +796,183 @@ async function applyActionCmd(kind) {
     finalize(s, e); return;
   }
 
-  const cfg = {
-    run:     { title: 'Run command', label: 'Command to run when clicked', def: '/', ph: '/spawn', hint: 'RUN_COMMAND — executed as the player.' },
-    suggest: { title: 'Suggest command', label: 'Command to pre-fill in chat', def: '/', ph: '/help', hint: 'SUGGEST_COMMAND — placed in the chat box, not run.' },
-    url:     { title: 'Open URL', label: 'URL to open', def: 'https://', ph: 'https://example.com', hint: 'OPEN_URL — only http/https links open in the vanilla client.' },
-  }[kind];
   const existing = (runsInRange(s, e)[0] || {}).click;
-  const val = await askInput({
-    title: cfg.title, label: cfg.label, value: existing && existing.kind === kind ? existing.value : cfg.def,
-    placeholder: cfg.ph, hint: cfg.hint,
-    validate: v => {
-      if (v.includes(']')) return 'Value cannot contain "]"';
-      if (kind === 'url' && !/^https?:\/\//i.test(v)) return 'URL must start with http:// or https://';
-      return null;
-    },
-  });
+  const val = await promptClick(kind, existing && existing.kind === kind ? existing.value : undefined);
   E = main;
   if (val === null) return;
   beginEdit('action');
   applyAttrRange(s, e, r => { r.click = { kind, value: val }; });
   finalize(s, e);
 }
+/* ============================================================================
+ * 10b. Edit-in-place action widget — click a run's action chip to edit/remove it
+ *   The chip (rendered by makeEditorSpan) carries data-off: a character offset
+ *   inside its run. From that we recover the run and the maximal contiguous range
+ *   that shares the action being edited, then reuse the same prompt / hover-editor
+ *   flows the toolbar uses. All edits target the MAIN editor.
+ * ========================================================================== */
+let actPopEl = null;          // the floating action popover element (lazily built)
+let actPopOff = -1;           // representative char offset of the run the popover edits
+
+// Maximal contiguous [start,end] char range around `off` whose runs share the same
+// click (clickEq) / hover value as the run at `off`. Mirrors how serializeRuns groups
+// contiguous equal-action runs into a single tag.
+function actionRange(off, attr) {
+  const runs = MAIN.doc;
+  const { idx } = findRunAt(off);
+  const i = Math.min(idx, runs.length - 1);
+  const val = runs[i] ? runs[i][attr] : null;
+  const same = attr === 'click' ? r => clickEq(r.click, val) : r => ((r.hover || null) === (val || null));
+  let a = i, b = i;
+  while (a > 0 && same(runs[a - 1])) a--;
+  while (b < runs.length - 1 && same(runs[b + 1])) b++;
+  let start = 0; for (let k = 0; k < a; k++) start += runs[k].text.length;
+  let end = start; for (let k = a; k <= b; k++) end += runs[k].text.length;
+  return [start, end];
+}
+function trunc(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function plainHover(markup) { return parseMarkup(markup).map(r => r.text).join(''); }
+
+function buildActPopover() {
+  actPopEl = document.createElement('div');
+  actPopEl.className = 'menu act-popover';   // `menu` so closeAllMenus() also dismisses it
+  actPopEl.addEventListener('mousedown', e => { if (!e.target.closest('input,textarea')) e.preventDefault(); });
+  actPopEl.addEventListener('click', e => e.stopPropagation());
+  document.body.appendChild(actPopEl);
+}
+function closeActPopover() { if (actPopEl) actPopEl.classList.remove('open'); }
+
+const KIND_LABEL = { run: 'Runs a command', suggest: 'Suggests a command', url: 'Opens a URL' };
+const KIND_SHORT = { run: '⚡ Run', suggest: '💭 Suggest', url: '🔗 URL' };
+
+// Small element builders used only by the popover.
+function elm(tag, cls, txt) { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; }
+function popBtn(cls, txt, onClick) {
+  const b = elm('button', cls, txt);
+  b.type = 'button';
+  b.addEventListener('mousedown', e => e.preventDefault());
+  b.addEventListener('click', e => { e.stopPropagation(); onClick(); });
+  return b;
+}
+
+// The popover is a clear status card: it shows exactly which actions are applied to this
+// text (with their current value) and gives each an Edit / Remove button; unset slots show
+// "Not set" plus add buttons.
+function openActionPopover(chip) {
+  E = MAIN;
+  if (!actPopEl) buildActPopover();
+  closeAllMenus();
+  const off = +chip.dataset.off;
+  actPopOff = off;
+  const run = MAIN.doc[findRunAt(off).idx] || blankAttrs();
+  const click = run.click, hover = run.hover;
+
+  actPopEl.innerHTML = '';
+  const head = elm('div', 'act-pop-head');
+  head.appendChild(elm('span', null, 'Action on'));
+  head.appendChild(elm('span', 'act-pop-sub', '“' + trunc(run.text, 22) + '”'));
+  actPopEl.appendChild(head);
+
+  /* ---- Click action card ---- */
+  const cCard = elm('div', 'act-pop-card' + (click ? '' : ' empty'));
+  const cHead = elm('div', 'act-pop-card-h');
+  cHead.appendChild(elm('span', 'act-pop-ic', '⚡'));
+  cHead.appendChild(elm('span', 'act-pop-name', 'Click action'));
+  cHead.appendChild(elm('span', 'act-pop-state', click ? KIND_LABEL[click.kind] : 'Not set'));
+  cCard.appendChild(cHead);
+  if (click) {
+    cCard.appendChild(elm('div', 'act-pop-val', click.value || '(empty)'));
+    const seg = elm('div', 'act-pop-seg');
+    ['run', 'suggest', 'url'].forEach(k =>
+      seg.appendChild(popBtn('act-seg-btn' + (k === click.kind ? ' on' : ''), KIND_SHORT[k], () => editClickAction(k))));
+    cCard.appendChild(seg);
+    const btns = elm('div', 'act-pop-btns');
+    btns.appendChild(popBtn('act-pop-btn', '✎ Edit', () => editClickAction(click.kind)));
+    btns.appendChild(popBtn('act-pop-btn danger', '✕ Remove', () => removeAction('click')));
+    cCard.appendChild(btns);
+  } else {
+    const add = elm('div', 'act-pop-seg');
+    ['run', 'suggest', 'url'].forEach(k =>
+      add.appendChild(popBtn('act-seg-btn', '＋ ' + KIND_SHORT[k], () => editClickAction(k))));
+    cCard.appendChild(add);
+  }
+  actPopEl.appendChild(cCard);
+
+  /* ---- Hover tooltip card ---- */
+  const hCard = elm('div', 'act-pop-card' + (hover ? '' : ' empty'));
+  const hHead = elm('div', 'act-pop-card-h');
+  hHead.appendChild(elm('span', 'act-pop-ic', '💬'));
+  hHead.appendChild(elm('span', 'act-pop-name', 'Hover tooltip'));
+  hHead.appendChild(elm('span', 'act-pop-state', hover ? 'Set' : 'Not set'));
+  hCard.appendChild(hHead);
+  if (hover) {
+    hCard.appendChild(elm('div', 'act-pop-val', plainHover(hover) || '(empty)'));
+    const btns = elm('div', 'act-pop-btns');
+    btns.appendChild(popBtn('act-pop-btn', '✎ Edit', () => editHoverAction()));
+    btns.appendChild(popBtn('act-pop-btn danger', '✕ Remove', () => removeAction('hover')));
+    hCard.appendChild(btns);
+  } else {
+    const btns = elm('div', 'act-pop-btns');
+    btns.appendChild(popBtn('act-pop-btn', '＋ Add tooltip', () => editHoverAction()));
+    hCard.appendChild(btns);
+  }
+  actPopEl.appendChild(hCard);
+
+  /* position near the chip, clamped to the viewport */
+  actPopEl.classList.add('open');
+  const r = chip.getBoundingClientRect();
+  const w = actPopEl.offsetWidth, h = actPopEl.offsetHeight;
+  let x = r.left, y = r.bottom + 6;
+  if (x + w > window.innerWidth - 8) x = window.innerWidth - 8 - w;
+  if (y + h > window.innerHeight - 8) y = r.top - 6 - h;
+  actPopEl.style.left = Math.max(8, x) + 'px';
+  actPopEl.style.top = Math.max(8, y) + 'px';
+}
+
+async function editClickAction(kind) {
+  closeActPopover();
+  E = MAIN;
+  const off = actPopOff;
+  const cur = (MAIN.doc[findRunAt(off).idx] || {}).click;
+  // Keep the current value when editing the same kind, or switching between the two
+  // command kinds (run↔suggest); fall back to the kind default when a URL is involved.
+  const keepVal = cur && (cur.kind === kind || (kind !== 'url' && cur.kind !== 'url'));
+  const val = await promptClick(kind, keepVal ? cur.value : undefined);
+  E = MAIN;
+  if (val === null) return;
+  const [s, e] = actionRange(off, cur ? 'click' : 'hover');   // adding → span the existing hover
+  beginEdit('action');
+  applyAttrRange(s, e, r => { r.click = { kind, value: val }; });
+  finalize(s, e);
+  MAIN.el.focus();
+}
+
+async function editHoverAction() {
+  closeActPopover();
+  E = MAIN;
+  const off = actPopOff;
+  const run = MAIN.doc[findRunAt(off).idx] || {};
+  const adding = !run.hover;
+  const val = await openHoverEditor(run.hover || '');
+  E = MAIN;
+  if (val === null) return;
+  const [s, e] = actionRange(off, adding ? 'click' : 'hover');   // adding → span the existing click
+  beginEdit('action');
+  applyAttrRange(s, e, r => { r.hover = val; });
+  finalize(s, e);
+  MAIN.el.focus();
+}
+
+function removeAction(attr) {
+  closeActPopover();
+  E = MAIN;
+  const [s, e] = actionRange(actPopOff, attr);
+  beginEdit('action');
+  applyAttrRange(s, e, r => { r[attr] = null; });
+  finalize(s, e);
+  MAIN.el.focus();
+}
+
 function applyGradient(fromHex, toHex) {
   if (rawMode && E === MAIN) return;
   const [s, e] = ordered();
@@ -854,6 +1039,7 @@ function handleBeforeInput(e) {
   const t = e.inputType;
   // allow nothing to fall through to native contenteditable
   e.preventDefault();
+  closeActPopover();   // any edit invalidates the popover's anchor chip
 
   // Native history events (Chromium may fire these); route them to our own stacks.
   if (t === 'historyUndo') { undo(); return; }
@@ -1186,6 +1372,7 @@ function updateRawToggleBtn() {
 function enterRawMode() {
   if (rawMode) return;
   E = MAIN;
+  closeActPopover();
   rawMode = true;
   rawEl.value = serializeRuns(MAIN.doc);
   editorWrap.classList.add('raw');
@@ -1255,6 +1442,17 @@ function init() {
     btn.addEventListener('click', () => { E = MAIN; applyActionCmd(btn.dataset.action); });
   });
 
+  /* edit-in-place: clicking a run's action chip opens the action popover */
+  const editorEl = $('editor');
+  editorEl.addEventListener('mousedown', e => { if (e.target.closest('.act-chip')) { e.preventDefault(); e.stopPropagation(); } });
+  editorEl.addEventListener('click', e => {
+    const chip = e.target.closest('.act-chip');
+    if (chip) { e.preventDefault(); e.stopPropagation(); openActionPopover(chip); }
+  });
+  editorEl.addEventListener('scroll', closeActPopover);
+  window.addEventListener('resize', closeActPopover);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeActPopover(); });
+
   /* main-only: raw-markup mode toggle + textarea */
   rawEl = $('editor-raw');
   editorWrap = document.querySelector('.editor-wrap');
@@ -1314,6 +1512,7 @@ function init() {
     getMarkup: () => serializeRuns(MAIN.doc), getDoc: () => MAIN.doc,
     undo: () => { E = MAIN; undo(); }, redo: () => { E = MAIN; redo(); },
     openHoverEditor, hoverCtx: () => HOVER, mainCtx: () => MAIN,
+    openActionPopover, closeActPopover, actionRange,
     toggleRawMode, enterRawMode, exitRawMode, isRawMode: () => rawMode, rawEl: () => rawEl };
 }
 
