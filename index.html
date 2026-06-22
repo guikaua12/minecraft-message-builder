@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spigot-boot · Message Builder</title>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  @font-face {
+    font-family: 'Minecraftia';
+    src: url('assets/Minecraftia-Regular.ttf') format('truetype');
+    font-display: swap;
+  }
+
+  :root {
+    --bg:        #1A1610;
+    --bg-2:      #232018;
+    --panel:     #2A2520;
+    --panel-2:   #2E2824;
+    --btn:       #3A3530;
+    --btn-hover: #444038;
+    --output-bg: #14110E;
+    --bevel-lt:  #504840;
+    --bevel-dk:  #2A2520;
+    --green:     #7EC850;
+    --green-2:   #5D8C2E;
+    --green-3:   #6B9E38;
+    --logo-green:#7cb147;
+    --gold:      #FFAA00;
+    --t-bright:  #E8E0D4;
+    --t-1:       #D4CEC4;
+    --t-2:       #A89888;
+    --t-3:       #6B5F54;
+    --t-4:       #5A5048;
+    --t-5:       #4A4440;
+    --t-6:       #3A3530;
+    --line:      rgba(255,255,255,0.06);
+    --line-2:    rgba(255,255,255,0.08);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--t-1);
+    font-family: 'Outfit', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  .app { height: 100vh; display: flex; flex-direction: column; }
+
+  /* ---------- Header ---------- */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 48px; padding: 0 20px; background: var(--panel);
+    border-bottom: 1px solid var(--line); flex: none;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand img { width: 36px; height: 36px; object-fit: contain; }
+  .brand .name { font-family: 'Silkscreen', monospace; font-size: 14px; color: var(--logo-green); font-weight: 700; }
+  .vsep { width: 1px; height: 20px; background: var(--line-2); }
+  .brand .sub { font-size: 13px; color: var(--t-3); }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+
+  .hbtn {
+    height: 30px; padding: 0 14px; display: flex; align-items: center; gap: 6px;
+    background: var(--btn); border: 1px solid var(--line-2); border-radius: 3px;
+    font-size: 12px; color: var(--t-2); cursor: pointer; font-family: inherit;
+    position: relative; user-select: none;
+  }
+  .hbtn:hover { background: var(--btn-hover); }
+  .hbtn .caret { font-size: 9px; opacity: 0.5; }
+  .hbtn.primary { color: #fff; font-weight: 600; background: var(--green-2); border-color: var(--green); }
+  .hbtn.primary:hover { background: var(--green-3); }
+
+  /* ---------- Toolbar ---------- */
+  .toolbar {
+    display: flex; align-items: center; gap: 4px; min-height: 46px;
+    padding: 0 16px; background: var(--bg-2); border-bottom: 1px solid var(--line);
+    flex: none; flex-wrap: wrap;
+  }
+  .group-label {
+    font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--t-6); margin: 0 4px 0 2px;
+  }
+  .sep { width: 1px; height: 24px; background: var(--line-2); margin: 0 8px; }
+
+  /* raw-markup mode: dim/disable the formatting controls (keep the Raw toggle live) */
+  .toolbar.raw-disabled .group-label,
+  .toolbar.raw-disabled .sep,
+  .toolbar.raw-disabled .tbtn,
+  .toolbar.raw-disabled .pill:not(#btn-raw-toggle) { opacity: 0.35; }
+  .toolbar.raw-disabled .tbtn,
+  .toolbar.raw-disabled .pill:not(#btn-raw-toggle) { pointer-events: none; }
+
+  .tbtn {
+    flex: none; min-width: 40px; height: 40px; padding: 0 4px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--btn); border: 2px solid; border-color: var(--bevel-lt) var(--bevel-dk) var(--bevel-dk) var(--bevel-lt);
+    font-size: 18px; color: var(--t-1); cursor: pointer; font-family: inherit; user-select: none;
+  }
+  .tbtn:hover { background: var(--btn-hover); }
+  .tbtn.active {
+    background: var(--panel-2); color: var(--gold);
+    border-color: var(--bevel-dk) var(--bevel-lt) var(--bevel-lt) var(--bevel-dk);
+  }
+  .tbtn[data-fmt="bold"]   { font-weight: 700; }
+  .tbtn[data-fmt="italic"] { font-style: italic; }
+  .tbtn[data-fmt="underline"] { text-decoration: underline; text-underline-offset: 3px; }
+  .tbtn[data-fmt="strikethrough"] { text-decoration: line-through; }
+  .tbtn[data-fmt="obfuscated"] { font-family: 'Silkscreen', monospace; font-size: 12px; }
+
+  .pill {
+    flex: none; height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 6px;
+    background: var(--btn); border: 2px solid; border-color: var(--bevel-lt) var(--bevel-dk) var(--bevel-dk) var(--bevel-lt);
+    font-size: 11px; color: var(--t-1); cursor: pointer; font-family: inherit; user-select: none; position: relative;
+  }
+  .pill:hover { background: var(--btn-hover); }
+  .pill.active {
+    background: var(--panel-2); color: var(--gold);
+    border-color: var(--bevel-dk) var(--bevel-lt) var(--bevel-lt) var(--bevel-dk);
+  }
+  .pill .swatch { width: 14px; height: 14px; border: 1px solid rgba(255,255,255,0.15); }
+  .pill .ico { font-size: 13px; }
+  .pill .caret { font-size: 8px; color: var(--t-3); }
+  .grad-ico { width: 16px; height: 10px; background: linear-gradient(90deg,#FF5555,#FFFF55,#55FF55); border-radius: 1px; }
+
+  /* ---------- Dropdown menus ---------- */
+  .menu {
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 60;
+    background: var(--panel); border: 1px solid var(--line-2); border-radius: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 8px; display: none;
+  }
+  .menu.open { display: block; }
+  .menu.right { left: auto; right: 0; }
+
+  .color-grid { display: grid; grid-template-columns: repeat(8, 22px); gap: 4px; }
+  .color-cell { width: 22px; height: 22px; border: 1px solid rgba(255,255,255,0.12); cursor: pointer; position: relative; }
+  .color-cell:hover { outline: 2px solid var(--gold); outline-offset: 1px; }
+  .color-cell.sel { outline: 2px solid #fff; outline-offset: 1px; }
+  .menu-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .menu-label { font-size: 10px; color: var(--t-3); text-transform: uppercase; letter-spacing: 0.06em; }
+  .hex-input, .text-input {
+    background: var(--bg); border: 1px solid var(--line-2); border-radius: 3px;
+    color: var(--t-1); font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    padding: 5px 7px; width: 100px; outline: none;
+  }
+  .hex-input:focus, .text-input:focus { border-color: var(--green); }
+  .mini-btn {
+    height: 26px; padding: 0 10px; background: var(--green-2); border: 1px solid var(--green);
+    border-radius: 3px; color: #fff; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .mini-btn:hover { background: var(--green-3); }
+  .mini-btn.ghost { background: var(--btn); border-color: var(--line-2); color: var(--t-2); }
+  .mini-btn.ghost:hover { background: var(--btn-hover); }
+
+  .menu-list { display: flex; flex-direction: column; min-width: 180px; }
+  .menu-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 7px 9px; border-radius: 3px; cursor: pointer; font-size: 12px; color: var(--t-1);
+  }
+  .menu-item:hover { background: var(--btn); }
+  .menu-item .hint { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--t-4); }
+  .menu-sym-grid { display: grid; grid-template-columns: repeat(6, 30px); gap: 4px; margin-top: 6px; }
+  .sym-cell { width: 30px; height: 28px; display: flex; align-items: center; justify-content: center;
+    background: var(--btn); border: 1px solid var(--line-2); border-radius: 3px; cursor: pointer; font-size: 15px; }
+  .sym-cell:hover { background: var(--btn-hover); }
+
+  /* ---------- Editor ---------- */
+  .editor-wrap { flex: 1; min-height: 120px; background: var(--bg); position: relative; display: flex; flex-direction: column; }
+  .editor {
+    flex: 1; padding: 28px 32px 44px; font-size: 16px; line-height: 2.0; outline: none;
+    overflow-y: auto; cursor: text; color: var(--t-bright); white-space: pre-wrap; word-break: break-word;
+  }
+  .editor:empty::before {
+    content: 'Type your message… use the toolbar to color, style, and add click / hover actions.';
+    color: var(--t-5); pointer-events: none;
+  }
+  /* raw-markup textarea (shown when the Raw toggle is on) */
+  .editor-raw {
+    display: none; flex: 1; width: 100%; padding: 28px 32px 44px; border: 0; resize: none;
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.9; outline: none;
+    overflow-y: auto; background: var(--bg); color: var(--t-bright);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .editor-raw::placeholder { color: var(--t-5); }
+  .editor-wrap.raw > .editor { display: none; }
+  .editor-wrap.raw > .editor-raw { display: block; }
+  .editor .ph { color: var(--green); background: rgba(126,200,80,0.10); border-radius: 2px; padding: 0 2px; }
+  /* action chips inside editor */
+  .editor .act-badge {
+    display: inline-flex; align-items: center; gap: 4px; height: 17px; padding: 0 6px; margin: 0 2px;
+    border-radius: 3px; font-family: 'Outfit', sans-serif; font-size: 10px; font-weight: 600; color: #fff;
+    vertical-align: middle; user-select: none;
+  }
+  .act-badge.run    { background: rgba(93,140,46,0.9); }
+  .act-badge.suggest{ background: rgba(170,130,40,0.9); }
+  .act-badge.url    { background: rgba(45,120,140,0.9); }
+  .act-badge.hover  { background: rgba(90,40,120,0.9); }
+
+  .statusbar {
+    position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between;
+    height: 28px; padding: 0 20px; background: rgba(0,0,0,0.25); border-top: 1px solid rgba(255,255,255,0.04);
+  }
+  .statusbar .left, .statusbar .right { display: flex; gap: 18px; }
+  .statusbar span { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--t-5); }
+  .stat-clicks  { color: #5D8C2E !important; }
+  .stat-suggest { color: #AA8820 !important; }
+  .stat-url     { color: #2D7888 !important; }
+  .stat-hover   { color: #8A5DB5 !important; }
+
+  /* ---------- Bottom split ---------- */
+  .bottom { display: flex; flex: none; height: 38vh; min-height: 240px; border-top: 1px solid var(--line); }
+  .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .pane.preview { border-right: 1px solid var(--line); }
+  .pane-head {
+    display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 16px;
+    background: var(--bg-2); border-bottom: 1px solid rgba(255,255,255,0.04); flex: none;
+  }
+  .pane-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--t-3); }
+  .head-right { display: flex; align-items: center; gap: 8px; }
+  .mono-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--t-4); }
+
+  .version-select {
+    height: 22px; padding: 0 6px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 2px;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--t-2); cursor: pointer; outline: none;
+  }
+
+  .preview-body { flex: 1; padding: 18px 20px; background: #0A0A0A; overflow: auto; }
+  .mc-chat {
+    background: rgba(0,0,0,0.55); padding: 14px 16px; min-height: 60px;
+    font-family: 'Minecraftia', 'Silkscreen', monospace; font-size: 13px; line-height: 2.2;
+  }
+  .mc-chat .mc-line { white-space: pre-wrap; word-break: break-word; }
+  .mc-chat .mc-seg { position: relative; }
+  .mc-chat .mc-seg.interactive { cursor: pointer; }
+  /* tooltip */
+  .mc-tooltip {
+    position: fixed; z-index: 80; pointer-events: none; display: none;
+    background: #190A28; border: 2px solid #28105A; padding: 6px 10px; max-width: 320px;
+    font-family: 'Minecraftia', 'Silkscreen', monospace; font-size: 11px; line-height: 1.9;
+    white-space: pre-wrap;
+  }
+  .click-hint { margin-top: 10px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--t-4); display: none; }
+  .click-hint.show { display: block; }
+
+  /* Output pane */
+  .tabs { display: flex; gap: 2px; }
+  .tab {
+    height: 22px; padding: 0 10px; display: flex; align-items: center; border-radius: 2px;
+    font-size: 10px; color: var(--t-4); cursor: pointer; user-select: none;
+  }
+  .tab.active { background: var(--gold); color: #1A1610; font-weight: 600; }
+  .tab.disabled { background: var(--panel-2); color: var(--t-6); cursor: not-allowed; }
+  .copy-btn {
+    height: 24px; padding: 0 12px; display: flex; align-items: center; gap: 4px;
+    background: var(--green-2); border: 1px solid var(--green); border-radius: 2px;
+    font-size: 10px; font-weight: 600; color: #fff; cursor: pointer; font-family: inherit;
+  }
+  .copy-btn:hover { background: var(--green-3); }
+  .output-body { flex: 1; background: var(--output-bg); overflow: auto; display: flex; flex-direction: column; }
+  #output-dsl {
+    margin: 0; flex: 1; padding: 16px 18px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--t-bright);
+  }
+  /* DSL syntax highlight tokens */
+  .tok-amp   { color: #8BD450; }
+  .tok-hex   { color: #C58BFF; }
+  .tok-tag   { color: #55BBFF; }
+  .tok-ph    { color: var(--gold); }
+  .tok-esc   { color: var(--t-4); }
+
+  .validation { flex: none; border-top: 1px solid var(--line); padding: 8px 18px; display: none; }
+  .validation.show { display: block; }
+  .validation .v-item { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; line-height: 1.7; }
+  .v-item.error { color: #FF6B6B; }
+  .v-item.warn  { color: #E0A33A; }
+  .v-item.ok    { color: #6FBF4A; }
+
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--green-2); color: #fff; font-size: 12px; font-weight: 600;
+    padding: 9px 16px; border-radius: 4px; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    opacity: 0; transition: opacity .18s, transform .18s; z-index: 200; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* editor runs & inline action badges */
+  .editor .ed-line { min-height: 1.7em; }
+  .editor .ed-seg { border-radius: 2px; }
+  .editor .ed-seg.act-run    { background: rgba(85,255,85,0.10);  outline: 1px solid rgba(85,255,85,0.25); padding: 1px 2px; }
+  .editor .ed-seg.act-suggest{ background: rgba(255,255,85,0.08); outline: 1px solid rgba(255,255,85,0.22); padding: 1px 2px; }
+  .editor .ed-seg.act-url    { background: rgba(85,255,255,0.08); outline: 1px solid rgba(85,255,255,0.22); padding: 1px 2px; }
+  .editor .ed-seg.act-hover  { background: rgba(170,90,255,0.08); outline: 1px solid rgba(170,90,255,0.22); padding: 1px 2px; }
+  .editor .ed-seg[data-badge]::after {
+    content: attr(data-badge); display: inline-block; vertical-align: middle; margin-left: 6px;
+    font-family: 'Outfit', sans-serif; font-size: 10px; font-weight: 600; color: #fff;
+    background: var(--green-2); border-radius: 3px; padding: 1px 7px; line-height: 1.5; user-select: none;
+  }
+  .editor .ed-seg.act-suggest[data-badge]::after { background: rgba(170,130,40,0.95); }
+  .editor .ed-seg.act-url[data-badge]::after     { background: rgba(45,120,140,0.95); }
+  .editor .ed-seg.act-hover[data-badge]::after   { background: rgba(120,55,165,0.95); }
+
+  /* modal */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 150; }
+  .overlay.open { display: flex; }
+  /* overflow visible so toolbar dropdowns inside the modal aren't clipped; corners rounded on header/footer instead */
+  .modal { background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; width: 400px; max-width: 92vw; box-shadow: 0 12px 40px rgba(0,0,0,0.6); overflow: visible; }
+  .modal-h { padding: 14px 16px; font-size: 13px; font-weight: 600; color: var(--t-1); border-bottom: 1px solid var(--line); border-radius: 6px 6px 0 0; }
+  .modal-f { border-radius: 0 0 6px 6px; }
+  .modal-b { padding: 16px; }
+  .modal-b label { display: block; font-size: 11px; color: var(--t-3); margin-bottom: 8px; }
+  .modal-b input, .modal-b textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--line-2); border-radius: 4px;
+    color: var(--t-1); font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 8px 10px; outline: none; resize: vertical;
+  }
+  .modal-b input:focus, .modal-b textarea:focus { border-color: var(--green); }
+  .modal-hint { font-size: 10px; color: var(--t-4); margin-top: 8px; line-height: 1.6; }
+  .modal-err { font-size: 10.5px; color: #FF6B6B; margin-top: 8px; min-height: 13px; }
+  .modal-f { padding: 12px 16px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
+
+  /* hover-tooltip mini editor modal */
+  .modal.modal-wide { width: 520px; }
+  .modal-sub { font-size: 10px; font-weight: 400; color: var(--t-4); margin-left: 6px; }
+  .hov-toolbar {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+    padding: 8px 14px; background: var(--bg-2); border-bottom: 1px solid var(--line);
+  }
+  .hov-toolbar .tbtn { width: 34px; min-width: 34px; height: 34px; font-size: 16px; }
+  .hov-editor {
+    min-height: 64px; max-height: 180px; overflow-y: auto; padding: 10px 12px;
+    background: var(--bg); border: 1px solid var(--line-2); border-radius: 4px;
+    font-size: 15px; line-height: 1.9; color: var(--t-bright); outline: none;
+    white-space: pre-wrap; word-break: break-word; cursor: text;
+  }
+  .hov-editor:focus { border-color: var(--green); }
+  .hov-editor:empty::before { content: 'Type the tooltip…'; color: var(--t-5); pointer-events: none; }
+  .hov-preview-wrap { margin-top: 6px; padding: 12px; background: #0A0A0A; border-radius: 4px; }
+  .hov-preview-wrap .mc-chat { background: #190A28; border: 2px solid #28105A; padding: 6px 10px; min-height: 0; line-height: 2.0; }
+
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #3A3530; border-radius: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">
+      <img src="assets/logo.png" alt="spigot-boot">
+      <span class="name">spigot-boot</span>
+      <div class="vsep"></div>
+      <span class="sub">Message Builder</span>
+    </div>
+    <div class="header-actions">
+      <div class="hbtn" id="btn-new"><span>📄</span> New</div>
+      <div class="hbtn" id="btn-templates">Templates <span class="caret">▼</span>
+        <div class="menu" id="menu-templates">
+          <div class="menu-list" id="templates-list"></div>
+        </div>
+      </div>
+      <div class="vsep"></div>
+      <div class="hbtn primary" id="btn-copy-output"><span>📋</span> Copy Output</div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <span class="group-label">Format</span>
+    <div class="tbtn" data-fmt="bold" title="Bold (&l)">B</div>
+    <div class="tbtn" data-fmt="italic" title="Italic (&o)">I</div>
+    <div class="tbtn" data-fmt="underline" title="Underline (&n)">U</div>
+    <div class="tbtn" data-fmt="strikethrough" title="Strikethrough (&m)">S</div>
+    <div class="tbtn" data-fmt="obfuscated" title="Obfuscated (&k)">§k</div>
+
+    <div class="sep"></div>
+    <span class="group-label">Color</span>
+    <div class="pill" id="btn-color" title="Text color">
+      <div class="swatch" id="color-swatch" style="background:#55FF55"></div>
+      <span id="color-name">Green</span>
+      <span class="caret">▼</span>
+      <div class="menu" id="menu-color">
+        <div class="color-grid" id="color-grid"></div>
+        <div class="menu-row">
+          <span class="menu-label">Hex</span>
+          <input class="hex-input" id="custom-hex" placeholder="#rrggbb" maxlength="7" spellcheck="false">
+          <button class="mini-btn" id="apply-hex">Set</button>
+        </div>
+        <div class="menu-row">
+          <button class="mini-btn ghost" id="clear-color">Reset color (&amp;r)</button>
+        </div>
+      </div>
+    </div>
+    <div class="pill" id="btn-gradient" title="Apply a gradient across the selection">
+      <div class="grad-ico"></div>
+      <span>Gradient</span>
+      <div class="menu" id="menu-gradient">
+        <div class="menu-row" style="margin-top:0">
+          <span class="menu-label">From</span>
+          <input type="color" id="grad-from" value="#ff5555">
+          <span class="menu-label">To</span>
+          <input type="color" id="grad-to" value="#5555ff">
+        </div>
+        <div class="menu-row">
+          <button class="mini-btn" id="apply-gradient">Apply to selection</button>
+        </div>
+        <div class="menu-row">
+          <span class="menu-label" style="line-height:1.5">Splits the selected text into one<br>#rrggbb per character.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+    <span class="group-label">Actions</span>
+    <div class="pill" data-action="run" title="Run command on click"><span class="ico">⚡</span><span>Click</span></div>
+    <div class="pill" data-action="suggest" title="Suggest command on click"><span class="ico">💭</span><span>Suggest</span></div>
+    <div class="pill" data-action="url" title="Open URL on click"><span class="ico">🔗</span><span>URL</span></div>
+    <div class="pill" data-action="hover" title="Show tooltip on hover"><span class="ico">💬</span><span>Hover</span></div>
+    <div class="pill" data-action="clear-action" title="Remove click/hover from selection"><span class="ico">⊘</span><span>Clear</span></div>
+
+    <div class="sep"></div>
+    <div class="pill" id="btn-insert" title="Insert placeholder or symbol">
+      <span class="ico" style="color:var(--green);font-size:15px;line-height:1">+</span>
+      <span>Insert</span>
+      <span class="caret">▼</span>
+      <div class="menu" id="menu-insert">
+        <div class="menu-label" style="margin-bottom:4px">Placeholders</div>
+        <div class="menu-list" id="placeholder-list"></div>
+        <div class="menu-label" style="margin-top:8px">Symbols</div>
+        <div class="menu-sym-grid" id="symbol-grid"></div>
+      </div>
+    </div>
+
+    <div class="sep"></div>
+    <div class="pill" id="btn-raw-toggle" title="Edit the raw markup string directly (paste markup here)">
+      <span class="ico" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--green)">&lt;/&gt;</span>
+      <span>Raw</span>
+    </div>
+  </div>
+
+  <!-- Editor -->
+  <div class="editor-wrap">
+    <div class="editor" id="editor" contenteditable="true" spellcheck="false"></div>
+    <textarea class="editor-raw" id="editor-raw" spellcheck="false" autocomplete="off" autocapitalize="off"
+      placeholder="Paste or type the raw markup string here…  e.g.  &amp;a&amp;lHello [click=run:/spawn]&amp;nworld[/click]"></textarea>
+    <div class="statusbar">
+      <div class="left">
+        <span id="status-lncol">Ln 1, Col 1</span>
+        <span id="status-counts">0 lines · 0 components</span>
+      </div>
+      <div class="right">
+        <span class="stat-clicks" id="status-clicks">● 0 clicks</span>
+        <span class="stat-suggest" id="status-suggest">● 0 suggest</span>
+        <span class="stat-url" id="status-url">● 0 url</span>
+        <span class="stat-hover" id="status-hover">● 0 hover</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom split -->
+  <div class="bottom">
+    <!-- Preview -->
+    <div class="pane preview">
+      <div class="pane-head">
+        <span class="pane-title">Chat Preview</span>
+        <div class="head-right">
+          <span class="mono-label">Version:</span>
+          <select class="version-select" id="version-select">
+            <option value="native" data-native="1" selected>1.21+</option>
+            <option value="native2" data-native="1">1.16+</option>
+            <option value="legacy15" data-native="0">1.15</option>
+            <option value="legacy8" data-native="0">1.8.x</option>
+          </select>
+        </div>
+      </div>
+      <div class="preview-body">
+        <div class="mc-chat" id="chat-preview"></div>
+        <div class="click-hint" id="click-hint"></div>
+      </div>
+    </div>
+
+    <!-- Output -->
+    <div class="pane output">
+      <div class="pane-head">
+        <div class="head-right">
+          <span class="pane-title">Output</span>
+          <div class="tabs">
+            <div class="tab active">DSL</div>
+            <div class="tab disabled" title="Disabled — the spigot-boot ChatMarkup output is the DSL string">JSON</div>
+            <div class="tab disabled" title="Disabled — the spigot-boot ChatMarkup output is the DSL string">Java</div>
+          </div>
+        </div>
+        <div class="copy-btn" id="btn-copy-dsl">📋 Copy</div>
+      </div>
+      <div class="output-body">
+        <pre id="output-dsl"></pre>
+        <div class="validation" id="validation"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Hover-tooltip mini editor -->
+<div class="overlay" id="hover-overlay">
+  <div class="modal modal-wide" role="dialog" aria-modal="true">
+    <div class="modal-h">💬 Hover tooltip <span class="modal-sub">shown on hover · SHOW_TEXT</span></div>
+
+    <div class="hov-toolbar">
+      <span class="group-label">Format</span>
+      <div class="tbtn" data-fmt="bold" title="Bold (&l)">B</div>
+      <div class="tbtn" data-fmt="italic" title="Italic (&o)">I</div>
+      <div class="tbtn" data-fmt="underline" title="Underline (&n)">U</div>
+      <div class="tbtn" data-fmt="strikethrough" title="Strikethrough (&m)">S</div>
+      <div class="tbtn" data-fmt="obfuscated" title="Obfuscated (&k)">§k</div>
+
+      <div class="sep"></div>
+      <span class="group-label">Color</span>
+      <div class="pill" id="hov-btn-color" title="Text color">
+        <div class="swatch" id="hov-color-swatch" style="background:#FFFFFF"></div>
+        <span id="hov-color-name">White</span>
+        <span class="caret">▼</span>
+        <div class="menu right" id="hov-menu-color">
+          <div class="color-grid" id="hov-color-grid"></div>
+          <div class="menu-row">
+            <span class="menu-label">Hex</span>
+            <input class="hex-input" id="hov-custom-hex" placeholder="#rrggbb" maxlength="7" spellcheck="false">
+            <button class="mini-btn" id="hov-apply-hex">Set</button>
+          </div>
+          <div class="menu-row">
+            <button class="mini-btn ghost" id="hov-clear-color">Reset color (&amp;r)</button>
+          </div>
+        </div>
+      </div>
+      <div class="pill" id="hov-btn-gradient" title="Apply a gradient across the selection">
+        <div class="grad-ico"></div>
+        <span>Gradient</span>
+        <div class="menu right" id="hov-menu-gradient">
+          <div class="menu-row" style="margin-top:0">
+            <span class="menu-label">From</span>
+            <input type="color" id="hov-grad-from" value="#ff5555">
+            <span class="menu-label">To</span>
+            <input type="color" id="hov-grad-to" value="#5555ff">
+          </div>
+          <div class="menu-row">
+            <button class="mini-btn" id="hov-apply-gradient">Apply to selection</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-b">
+      <label>Tooltip text — select text, then use the tools above (no click/hover allowed inside a tooltip)</label>
+      <div class="hov-editor" id="hover-editor" contenteditable="true" spellcheck="false"></div>
+      <div class="menu-label" style="margin-top:12px">Preview</div>
+      <div class="hov-preview-wrap"><div class="mc-chat" id="hover-preview"></div></div>
+      <div class="modal-err" id="hover-err"></div>
+    </div>
+
+    <div class="modal-f">
+      <button class="mini-btn ghost" id="hover-cancel">Cancel</button>
+      <button class="mini-btn" id="hover-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="mc-tooltip" id="mc-tooltip"></div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js?v=5"></script>
+</body>
+</html>
