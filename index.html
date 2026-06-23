@@ -254,6 +254,7 @@
     font-size: 10px; color: var(--t-4); cursor: pointer; user-select: none;
   }
   .tab.active { background: var(--gold); color: #1A1610; font-weight: 600; }
+  .tab:not(.active):not(.disabled):hover { background: var(--btn); color: var(--t-2); }
   .tab.disabled { background: var(--panel-2); color: var(--t-6); cursor: not-allowed; }
   .copy-btn {
     height: 24px; padding: 0 12px; display: flex; align-items: center; gap: 4px;
@@ -262,7 +263,7 @@
   }
   .copy-btn:hover { background: var(--green-3); }
   .output-body { flex: 1; background: var(--output-bg); overflow: auto; display: flex; flex-direction: column; }
-  #output-dsl {
+  #output-dsl, #output-json {
     margin: 0; flex: 1; padding: 16px 18px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
     line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--t-bright);
   }
@@ -272,6 +273,11 @@
   .tok-tag   { color: #55BBFF; }
   .tok-ph    { color: var(--gold); }
   .tok-esc   { color: var(--t-4); }
+  /* JSON syntax highlight tokens */
+  .tok-json-key { color: #55BBFF; }
+  .tok-json-str { color: #8BD450; }
+  .tok-json-kw  { color: #C58BFF; }
+  .tok-json-num { color: var(--gold); }
 
   .validation { flex: none; border-top: 1px solid var(--line); padding: 8px 18px; display: none; }
   .validation.show { display: block; }
@@ -415,7 +421,14 @@
         </div>
       </div>
       <div class="vsep"></div>
-      <div class="hbtn primary" id="btn-copy-output"><span>📋</span> Copy Output</div>
+      <div class="hbtn primary" id="btn-copy-output"><span>📋</span> Copy Output <span class="caret">▼</span>
+        <div class="menu right" id="menu-copy">
+          <div class="menu-list">
+            <div class="menu-item" id="copy-dsl"><span>DSL</span><span class="hint">ChatMarkup</span></div>
+            <div class="menu-item" id="copy-json"><span>JSON</span><span class="hint">tellraw</span></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -487,7 +500,7 @@
     </div>
 
     <div class="sep"></div>
-    <div class="pill" id="btn-raw-toggle" title="Edit the raw markup string directly (paste markup here)">
+    <div class="pill" id="btn-raw-toggle" title="Edit the raw string directly — paste ChatMarkup or Minecraft tellraw JSON here">
       <span class="ico" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--green)">&lt;/&gt;</span>
       <span>Raw</span>
     </div>
@@ -497,7 +510,7 @@
   <div class="editor-wrap">
     <div class="editor" id="editor" contenteditable="true" spellcheck="false"></div>
     <textarea class="editor-raw" id="editor-raw" spellcheck="false" autocomplete="off" autocapitalize="off"
-      placeholder="Paste or type the raw markup string here…  e.g.  &amp;a&amp;lHello [click=run:/spawn]&amp;nworld[/click]"></textarea>
+      placeholder="Paste ChatMarkup  e.g.  &amp;a&amp;lHello [click=run:/spawn]&amp;nworld[/click]   — or paste Minecraft tellraw JSON  e.g.  [&quot;&quot;,{&quot;text&quot;:&quot;Hello&quot;,&quot;color&quot;:&quot;green&quot;}]"></textarea>
     <div class="statusbar">
       <div class="left">
         <span id="status-lncol">Ln 1, Col 1</span>
@@ -521,8 +534,8 @@
         <div class="head-right">
           <span class="mono-label">Version:</span>
           <select class="version-select" id="version-select">
-            <option value="native" data-native="1" selected>1.21+</option>
-            <option value="native2" data-native="1">1.16+</option>
+            <option value="native" data-native="1" selected>1.21.5+</option>
+            <option value="native2" data-native="1">1.16–1.21.4</option>
             <option value="legacy15" data-native="0">1.15</option>
             <option value="legacy8" data-native="0">1.8.x</option>
           </select>
@@ -540,15 +553,16 @@
         <div class="head-right">
           <span class="pane-title">Output</span>
           <div class="tabs">
-            <div class="tab active">DSL</div>
-            <div class="tab disabled" title="Disabled — the spigot-boot ChatMarkup output is the DSL string">JSON</div>
-            <div class="tab disabled" title="Disabled — the spigot-boot ChatMarkup output is the DSL string">Java</div>
+            <div class="tab active" data-tab="dsl" title="spigot-boot ChatMarkup string">DSL</div>
+            <div class="tab" data-tab="json" title="Minecraft text-component JSON (/tellraw)">JSON</div>
+            <div class="tab disabled" title="Disabled — Java ComponentBuilder output is not generated">Java</div>
           </div>
         </div>
         <div class="copy-btn" id="btn-copy-dsl">📋 Copy</div>
       </div>
       <div class="output-body">
         <pre id="output-dsl"></pre>
+        <pre id="output-json" style="display:none"></pre>
         <div class="validation" id="validation"></div>
       </div>
     </div>
@@ -622,6 +636,6 @@
 <div class="mc-tooltip" id="mc-tooltip"></div>
 <div class="toast" id="toast"></div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

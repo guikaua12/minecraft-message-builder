@@ -140,6 +140,165 @@ function serializeRuns(runs) {
 }
 
 /* ----------------------------------------------------------------------------
+ * 3b. JSON serializer — model → Minecraft official text-component JSON
+ *   Additive, pure, DOM-free. Reuses LEGACY_BY_CODE / nearestLegacy / hexToRgb /
+ *   parseMarkup. The shape is version-gated (the format changed across releases):
+ *     legacy8  (1.8.x)        named colours only · clickEvent{action,value} · hoverEvent.value
+ *     legacy15 (1.15)         named colours only · (same; copy_to_clipboard era)
+ *     native2  (1.16–1.21.4)  #rrggbb hex · clickEvent{action,value} · hoverEvent.contents
+ *     native   (1.21.5+)      #rrggbb hex · click_event{action,<field>} · hover_event.value
+ *   `value` here keys the existing #version-select <option>, so one selector drives both
+ *   the preview and the JSON output.
+ * ------------------------------------------------------------------------- */
+const JSON_FMT = {
+  legacy8:  { hex: false, hoverField: 'value',    click: 'legacy', snake: false },
+  legacy15: { hex: false, hoverField: 'value',    click: 'legacy', snake: false },
+  native2:  { hex: true,  hoverField: 'contents', click: 'legacy', snake: false },
+  native:   { hex: true,  hoverField: 'value',    click: 'modern', snake: true  },
+};
+const colorName = c => c.name.toLowerCase().replace(/ /g, '_'); // LEGACY entry → "dark_blue" etc.
+
+function clickToJson(click, fmt) {
+  const action = click.kind === 'run' ? 'run_command'
+               : click.kind === 'suggest' ? 'suggest_command' : 'open_url';
+  if (fmt.click === 'modern') {                 // 1.21.5+: action-specific value field
+    const field = action === 'open_url' ? 'url' : 'command';
+    return { action, [field]: click.value };
+  }
+  return { action, value: click.value };        // ≤1.21.4: generic value
+}
+
+function runToComponent(run, fmt) {
+  const c = { text: run.text };                 // literal text — JSON.stringify handles escaping
+  if (run.color) {
+    if (run.color.type === 'legacy')  c.color = colorName(LEGACY_BY_CODE[run.color.code]);
+    else if (fmt.hex)                 c.color = '#' + run.color.value;
+    else                             c.color = colorName(nearestLegacy(hexToRgb(run.color.value)));
+  }
+  if (run.bold)          c.bold = true;
+  if (run.italic)        c.italic = true;
+  if (run.underline)     c.underlined = true;   // model `underline` → JSON `underlined`
+  if (run.strikethrough) c.strikethrough = true;
+  if (run.obfuscated)    c.obfuscated = true;
+  if (run.click) c[fmt.snake ? 'click_event' : 'clickEvent'] = clickToJson(run.click, fmt);
+  if (run.hover) c[fmt.snake ? 'hover_event' : 'hoverEvent'] =
+    { action: 'show_text', [fmt.hoverField]: componentsToRoot(parseMarkup(run.hover), fmt) };
+  return c;
+}
+
+function componentsToRoot(runs, fmt) {
+  const comps = runs.filter(r => r.text !== '').map(r => runToComponent(r, fmt));
+  if (comps.length === 0) return { text: '' };
+  if (comps.length === 1) return comps[0];
+  return ['', ...comps];                        // empty-string parent → siblings inherit nothing
+}
+
+function serializeJson(runs, fmt) {
+  return JSON.stringify(componentsToRoot(runs, fmt || JSON_FMT.native), null, 2);
+}
+function curJsonFmt() { return JSON_FMT[$('version-select').value] || JSON_FMT.native; }
+
+/* ----------------------------------------------------------------------------
+ * 3c. JSON importer — Minecraft text-component JSON → model (inverse of 3b)
+ *   Flattens the component tree into the flat runs[] model, applying Minecraft's
+ *   inheritance (children inherit colour/styles/click/hover unless they override).
+ *   Accepts every version dialect at once: clickEvent|click_event, value|command|url,
+ *   hoverEvent.value|.contents|hover_event.value, named colours and #rrggbb hex.
+ *   Unrepresentable bits (font/insertion, copy_to_clipboard/change_page, show_item/
+ *   show_entity, translate/score/selector) are dropped — the model is colours, the
+ *   five styles, a run/suggest/url click and a show_text hover.
+ * ------------------------------------------------------------------------- */
+const LEGACY_BY_NAME = Object.fromEntries(LEGACY.map(c => [c.name.toLowerCase().replace(/ /g, '_'), c.code]));
+
+function jsonColorToModel(col) {
+  if (typeof col !== 'string') return null;
+  const c = col.trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(c)) return { type: 'hex', value: c.slice(1) };
+  if (LEGACY_BY_NAME[c] != null) return { type: 'legacy', code: LEGACY_BY_NAME[c] };
+  return null;                                   // 'reset' / unknown / namespaced → no colour
+}
+
+function jsonClickToModel(ev) {
+  if (!ev || typeof ev !== 'object') return null;
+  const kind = ev.action === 'run_command' ? 'run'
+             : ev.action === 'suggest_command' ? 'suggest'
+             : ev.action === 'open_url' ? 'url' : null;
+  if (!kind) return null;                        // copy_to_clipboard / change_page not representable
+  const v = ev.value != null ? ev.value : ev.command != null ? ev.command : ev.url != null ? ev.url : '';
+  return { kind, value: String(v) };
+}
+
+function jsonHoverToMarkup(ev) {
+  if (!ev || typeof ev !== 'object' || ev.action !== 'show_text') return null;
+  const content = ev.value != null ? ev.value : ev.contents;  // value (legacy/1.21.5+) | contents (1.16–1.21.4)
+  if (content == null) return null;
+  const runs = [];
+  flattenComponent(content, blankAttrs(), runs);
+  for (const r of runs) { r.click = null; r.hover = null; }   // tooltips are colours/styles only
+  return serializeRuns(runs) || null;
+}
+
+function jsonStyleFields(node, inherited) {
+  const a = Object.assign({}, inherited);        // inherit, then let the node's own fields override
+  if ('color' in node)         a.color = jsonColorToModel(node.color);
+  if ('bold' in node)          a.bold = !!node.bold;
+  if ('italic' in node)        a.italic = !!node.italic;
+  if ('underlined' in node)    a.underline = !!node.underlined;   // JSON `underlined` → model `underline`
+  if ('strikethrough' in node) a.strikethrough = !!node.strikethrough;
+  if ('obfuscated' in node)    a.obfuscated = !!node.obfuscated;
+  const click = node.clickEvent || node.click_event;
+  if (click !== undefined) a.click = jsonClickToModel(click);
+  const hover = node.hoverEvent || node.hover_event;
+  if (hover !== undefined) a.hover = jsonHoverToMarkup(hover);
+  return a;
+}
+
+function flattenComponent(node, inherited, out) {
+  if (node == null) return;
+  if (typeof node !== 'object') {                // string / number / boolean → literal text
+    const t = String(node);
+    if (t !== '') out.push(mkRun(t, inherited));
+    return;
+  }
+  if (Array.isArray(node)) {                     // [head, ...rest]: rest are head's children (inherit its style)
+    if (!node.length) return;
+    const head = node[0], rest = node.slice(1);
+    if (head && typeof head === 'object' && !Array.isArray(head)) {
+      flattenComponent(Object.assign({}, head, { extra: [...(head.extra || []), ...rest] }), inherited, out);
+    } else {
+      flattenComponent(head, inherited, out);
+      for (const ch of rest) flattenComponent(ch, inherited, out);
+    }
+    return;
+  }
+  const style = jsonStyleFields(node, inherited);
+  const t = node.text;
+  if (t !== undefined && t !== null && t !== '') out.push(mkRun(String(t), style));
+  if (Array.isArray(node.extra)) for (const ch of node.extra) flattenComponent(ch, style, out);
+}
+
+function coalesceRuns(runs) {                     // merge adjacent runs that carry identical attrs
+  const out = [];
+  for (const r of runs) {
+    const last = out[out.length - 1];
+    if (last && attrsEq(last, r)) last.text += r.text;
+    else out.push(r);
+  }
+  return out;
+}
+
+/* Parse a string as Minecraft component JSON → runs[]. Returns null when the text is
+   NOT a JSON object/array (so the caller falls back to DSL markup parsing). */
+function jsonToRuns(text) {
+  let obj;
+  try { obj = JSON.parse(text); } catch (_) { return null; }
+  if (obj === null || typeof obj !== 'object') return null;   // primitives → treat as DSL, not JSON
+  const out = [];
+  flattenComponent(obj, blankAttrs(), out);
+  return coalesceRuns(out);
+}
+
+/* ----------------------------------------------------------------------------
  * 4. Parser — mirror ChatMarkup.parse exactly (spec §3, §6)  string → runs
  * ------------------------------------------------------------------------- */
 function parseMarkup(str) {
@@ -687,14 +846,31 @@ function highlightMarkup(str) {
   return out;
 }
 
+/* Light syntax-highlight for the JSON output pane (keys / strings / keywords / numbers). */
+function highlightJson(str) {
+  return escapeHtml(str).replace(
+    /("(?:\\.|[^"\\])*")(\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+    (m, strLit, colon) => {
+      if (strLit !== undefined) {
+        const cls = colon ? 'tok-json-key' : 'tok-json-str';
+        return `<span class="${cls}">${strLit}</span>` + (colon || '');
+      }
+      if (m === 'true' || m === 'false' || m === 'null') return `<span class="tok-json-kw">${m}</span>`;
+      return `<span class="tok-json-num">${m}</span>`;
+    }
+  );
+}
+
 /* ============================================================================
  * 9. Outputs: DSL + preview + validation + status bar
  * ========================================================================== */
 let lastMarkup = '';
+let outTab = 'dsl';                 // active Output-pane tab: 'dsl' | 'json'
 function refreshOutputs() {
   const markup = serializeRuns(MAIN.doc);
   lastMarkup = markup;
   $('output-dsl').innerHTML = markup ? highlightMarkup(markup) : '<span class="tok-esc">(empty message)</span>';
+  $('output-json').innerHTML = highlightJson(serializeJson(MAIN.doc, curJsonFmt()));
   buildPreviewInto(chatPreview, parseMarkup(markup), currentNative());
   renderValidation(validateRuns(MAIN.doc));
   updateStatusBar();
@@ -1352,7 +1528,10 @@ function lenOfDoc(d) { return d.reduce((a, r) => a + r.text.length, 0); }
 
 function syncFromRaw() {                 // raw textarea text → MAIN.doc + outputs (no #editor re-render)
   E = MAIN;
-  let newDoc = parseMarkup(rawEl.value);
+  // Accept either surface format: a Minecraft text-component JSON object/array is imported,
+  // anything else is parsed as the ChatMarkup DSL string. (jsonToRuns returns null for non-JSON.)
+  const imported = jsonToRuns(rawEl.value);
+  let newDoc = imported !== null ? imported : parseMarkup(rawEl.value);
   if (lenOfDoc(newDoc) === 0) newDoc = [mkRun('', {})];
   if (serializeRuns(newDoc) === serializeRuns(MAIN.doc)) { refreshOutputs(); return; }
   beginEdit('raw');
@@ -1492,11 +1671,33 @@ function init() {
 
   /* header buttons */
   $('btn-new').addEventListener('click', () => externalLoad(''));
-  $('btn-copy-output').addEventListener('click', async () => { toast(await copyText(serializeRuns(MAIN.doc)) ? 'Output copied!' : 'Copy failed'); });
-  $('btn-copy-dsl').addEventListener('click', async () => { toast(await copyText(serializeRuns(MAIN.doc)) ? 'Output copied!' : 'Copy failed'); });
+
+  /* "Copy Output" opens a popover: copy DSL (ChatMarkup) or JSON (Minecraft text component) */
+  wireDropdown('btn-copy-output', 'menu-copy');
+  $('menu-copy').addEventListener('click', e => e.stopPropagation());
+  $('copy-dsl').addEventListener('click', async () => {
+    toast(await copyText(serializeRuns(MAIN.doc)) ? 'DSL copied!' : 'Copy failed'); closeAllMenus(); });
+  $('copy-json').addEventListener('click', async () => {
+    toast(await copyText(serializeJson(MAIN.doc, curJsonFmt())) ? 'JSON copied!' : 'Copy failed'); closeAllMenus(); });
+
+  /* small pane Copy button copies whichever output tab is active */
+  $('btn-copy-dsl').addEventListener('click', async () => {
+    const text = outTab === 'json' ? serializeJson(MAIN.doc, curJsonFmt()) : serializeRuns(MAIN.doc);
+    toast(await copyText(text) ? (outTab === 'json' ? 'JSON copied!' : 'DSL copied!') : 'Copy failed'); });
 
   /* version selector */
   $('version-select').addEventListener('change', () => { refreshOutputs(); if ($('hover-overlay').classList.contains('open')) updateHoverPreview(); });
+
+  /* output tab switching (DSL ⇄ JSON) */
+  document.querySelectorAll('.tab[data-tab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (tab.classList.contains('active')) return;
+      outTab = tab.dataset.tab;
+      document.querySelectorAll('.tab[data-tab]').forEach(t => t.classList.toggle('active', t === tab));
+      $('output-dsl').style.display = outTab === 'dsl' ? '' : 'none';
+      $('output-json').style.display = outTab === 'json' ? '' : 'none';
+    });
+  });
 
   /* hover modal: backdrop click + Escape cancel */
   $('hover-overlay').addEventListener('mousedown', e => { if (e.target === $('hover-overlay')) $('hover-cancel').click(); });
@@ -1507,7 +1708,7 @@ function init() {
   loadMarkup(SAMPLE, { resetHistory: true });
 
   /* Public engine API. Editor handles operate on the main editor. */
-  window.SBMB = { parseMarkup, serializeRuns, validateRuns, nearestLegacy, hexToRgb, LEGACY,
+  window.SBMB = { parseMarkup, serializeRuns, serializeJson, jsonToRuns, JSON_FMT, validateRuns, nearestLegacy, hexToRgb, LEGACY,
     loadMarkup: (m, o) => externalLoad(m, o),
     getMarkup: () => serializeRuns(MAIN.doc), getDoc: () => MAIN.doc,
     undo: () => { E = MAIN; undo(); }, redo: () => { E = MAIN; redo(); },
